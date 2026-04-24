@@ -35,5 +35,5 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000 HOSTNAME=0.0.0.0
 
-# Migra y arranca
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# Migra y arranca (pinea versión de Prisma CLI para que no descargue v7 — breaking changes)
+CMD ["sh", "-c", "npx prisma@5.22.0 migrate deploy && node server.js"]
