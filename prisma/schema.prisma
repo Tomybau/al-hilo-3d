@@ -1,0 +1,369 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------- Config key-value --------------------
+
+model Setting {
+  key       String @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// -------------------- Usuarios --------------------
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  filamentBatches   FilamentBatch[]
+  filamentOrders    FilamentOrder[]
+  toyPrices         ToyPrice[]
+  salesDays         SalesDay[]
+  transactions      Transaction[]
+  partMoves         PartMove[]
+  issues            Issue[]
+}
+
+// -------------------- Lugares de venta --------------------
+
+model SalesLocation {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  salesDays SalesDay[]
+}
+
+// -------------------- Filamentos --------------------
+
+enum FilamentType {
+  PLA
+  PETG
+  ABS
+  TPU
+  OTRO
+}
+
+model FilamentOrder {
+  id          Int      @id @default(autoincrement())
+  supplier    String
+  date        DateTime
+  shippingArs Decimal  @default(0) @db.Decimal(12, 2)
+  notes       String?
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  createdBy User?           @relation(fields: [createdById], references: [id])
+  batches   FilamentBatch[]
+
+  @@index([date])
+}
+
+model Filament {
+  id        Int          @id @default(autoincrement())
+  brand     String
+  color     String
+  type      FilamentType @default(PLA)
+  notes     String?
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  batches FilamentBatch[]
+
+  @@unique([brand, color, type])
+}
+
+model FilamentBatch {
+  id               Int      @id @default(autoincrement())
+  filamentId       Int
+  orderId          Int?
+  gramsTotal       Int      @default(1000)
+  gramsRemaining   Int      @default(1000)
+  isFinished       Boolean  @default(false)
+  purchasePriceArs Decimal  @db.Decimal(12, 2)
+  purchaseDate     DateTime
+  notes            String?
+  createdById      Int?
+  createdAt        DateTime @default(now())
+
+  filament  Filament       @relation(fields: [filamentId], references: [id], onDelete: Cascade)
+  order     FilamentOrder? @relation(fields: [orderId], references: [id])
+  createdBy User?          @relation(fields: [createdById], references: [id])
+
+  @@index([filamentId])
+  @@index([orderId])
+}
+
+// -------------------- Juguetes --------------------
+
+model Toy {
+  id                 Int      @id @default(autoincrement())
+  name               String   @unique
+  sku                String?  @unique
+  category           String?
+  currentPriceArs    Decimal  @db.Decimal(12, 2)
+  stock              Int      @default(0)
+  active             Boolean  @default(true)
+  notes              String?
+  printTimeMinutes   Int?
+  weightGrams        Decimal? @db.Decimal(8, 2)
+  postProcessMinutes Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  prices    ToyPrice[]
+  saleLines SaleLine[]
+
+  @@index([category])
+}
+
+model ToyPrice {
+  id            Int      @id @default(autoincrement())
+  toyId         Int
+  priceArs      Decimal  @db.Decimal(12, 2)
+  effectiveFrom DateTime @default(now())
+  createdById   Int?
+
+  toy       Toy   @relation(fields: [toyId], references: [id], onDelete: Cascade)
+  createdBy User? @relation(fields: [createdById], references: [id])
+
+  @@index([toyId, effectiveFrom])
+}
+
+// -------------------- Ventas --------------------
+
+enum SalesDayStatus {
+  DRAFT
+  CLOSED
+}
+
+model SalesDay {
+  id           Int            @id @default(autoincrement())
+  date         DateTime
+  locationId   Int?
+  notes        String?
+  status       SalesDayStatus @default(DRAFT)
+  createdById  Int?
+  createdAt    DateTime       @default(now())
+  closedAt     DateTime?
+
+  location     SalesLocation? @relation(fields: [locationId], references: [id])
+  createdBy    User?          @relation(fields: [createdById], references: [id])
+  lines        SaleLine[]
+  miscLines    MiscLine[]
+  settlements  Settlement[]
+  transactions Transaction[]
+
+  @@index([date])
+}
+
+model SaleLine {
+  id           Int     @id @default(autoincrement())
+  salesDayId   Int
+  toyId        Int
+  quantity     Int
+  unitPriceArs Decimal @db.Decimal(12, 2)
+
+  salesDay  SalesDay         @relation(fields: [salesDayId], references: [id], onDelete: Cascade)
+  toy       Toy              @relation(fields: [toyId], references: [id])
+  variants  SaleLineVariant[]
+
+  @@unique([salesDayId, toyId])
+  @@index([salesDayId])
+}
+
+model SaleLineVariant {
+  id         Int    @id @default(autoincrement())
+  saleLineId Int
+  name       String
+  quantity   Int    @default(1)
+
+  saleLine SaleLine @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
+
+  @@index([saleLineId])
+}
+
+model MiscLine {
+  id           Int     @id @default(autoincrement())
+  salesDayId   Int
+  description  String
+  quantity     Int     @default(1)
+  unitPriceArs Decimal @db.Decimal(12, 2)
+
+  salesDay SalesDay @relation(fields: [salesDayId], references: [id], onDelete: Cascade)
+
+  @@index([salesDayId])
+}
+
+enum SettlementKind {
+  RECEIVED
+  DISCOUNT
+  DISCREPANCY
+}
+
+model Settlement {
+  id         Int            @id @default(autoincrement())
+  salesDayId Int
+  accountId  Int?
+  amountArs  Decimal        @db.Decimal(12, 2)
+  kind       SettlementKind
+  note       String?
+
+  salesDay SalesDay @relation(fields: [salesDayId], references: [id], onDelete: Cascade)
+  account  Account? @relation(fields: [accountId], references: [id])
+
+  @@index([salesDayId])
+}
+
+// -------------------- Finanzas --------------------
+
+enum AccountKind {
+  CASH
+  BANK
+  WALLET
+}
+
+model Account {
+  id        Int         @id @default(autoincrement())
+  name      String      @unique
+  kind      AccountKind
+  active    Boolean     @default(true)
+  notes     String?
+  createdAt DateTime    @default(now())
+
+  transactions Transaction[]
+  settlements  Settlement[]
+}
+
+model TransactionCategory {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  active Boolean @default(true)
+}
+
+enum TxDirection {
+  INCOME
+  EXPENSE
+}
+
+model Transaction {
+  id          Int         @id @default(autoincrement())
+  date        DateTime
+  direction   TxDirection
+  amountArs   Decimal     @db.Decimal(12, 2)
+  accountId   Int
+  category    String?
+  description String?
+  salesDayId  Int?
+  createdById Int?
+  createdAt   DateTime    @default(now())
+
+  account   Account   @relation(fields: [accountId], references: [id])
+  salesDay  SalesDay? @relation(fields: [salesDayId], references: [id])
+  createdBy User?     @relation(fields: [createdById], references: [id])
+
+  @@index([date])
+  @@index([accountId, date])
+}
+
+// -------------------- Impresoras --------------------
+
+enum PrinterStatus {
+  ACTIVE
+  DOWN
+  RETIRED
+}
+
+model Printer {
+  id          Int           @id @default(autoincrement())
+  name        String        @unique
+  model       String?
+  purchasedAt DateTime?
+  status      PrinterStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  issues          Issue[]
+  partMoves       PartMove[]
+  compatibleParts Part[]    @relation("PrinterParts")
+}
+
+model Part {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  sku       String?
+  stock     Int      @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  compatiblePrinters Printer[]   @relation("PrinterParts")
+  moves              PartMove[]
+  issuesUsed         IssuePart[]
+}
+
+enum PartMoveType {
+  PURCHASE
+  USE
+  ADJUSTMENT
+}
+
+model PartMove {
+  id          Int          @id @default(autoincrement())
+  partId      Int
+  type        PartMoveType
+  qty         Int
+  date        DateTime     @default(now())
+  printerId   Int?
+  issueId     Int?
+  note        String?
+  createdById Int?
+
+  part      Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
+  printer   Printer? @relation(fields: [printerId], references: [id])
+  issue     Issue?   @relation(fields: [issueId], references: [id])
+  createdBy User?    @relation(fields: [createdById], references: [id])
+
+  @@index([partId, date])
+}
+
+enum IssueSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Issue {
+  id          Int           @id @default(autoincrement())
+  printerId   Int
+  title       String
+  description String?
+  severity    IssueSeverity @default(MEDIUM)
+  startedAt   DateTime      @default(now())
+  resolvedAt  DateTime?
+  createdById Int?
+
+  printer   Printer     @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation(fields: [createdById], references: [id])
+  partsUsed IssuePart[]
+  partMoves PartMove[]
+
+  @@index([printerId, startedAt])
+}
+
+model IssuePart {
+  issueId Int
+  partId  Int
+  qty     Int
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  part  Part  @relation(fields: [partId], references: [id])
+
+  @@id([issueId, partId])
+}

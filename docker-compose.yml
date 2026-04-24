@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: alhilo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alhilo}
+      POSTGRES_DB: alhilo3d
+    volumes:
+      - alhilo_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alhilo -d alhilo3d"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://alhilo:${POSTGRES_PASSWORD:-alhilo}@postgres:5432/alhilo3d?schema=public
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET in .env}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  alhilo_pgdata:
