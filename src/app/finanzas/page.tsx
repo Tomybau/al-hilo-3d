@@ -1,9 +1,12 @@
-import { Wallet, X } from "lucide-react";
+import Link from "next/link";
+import { Wallet, X, BookmarkCheck } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { deleteTransaction } from "@/server/actions/finance";
+import { upsertSetting } from "@/server/actions/config";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { RecurringBillsSection } from "./recurring-bills-section";
 import {
   Table,
   TableBody,
@@ -27,10 +30,40 @@ export default async function FinancePage({
   searchParams: Promise<{ from?: string; to?: string; account?: string; direction?: string }>;
 }) {
   const sp = await searchParams;
-  const [accounts, categories] = await Promise.all([
+  const now = new Date();
+  const thisMonthFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const thisYearFrom = `${now.getFullYear()}-01-01`;
+
+  const [accounts, categories, customFromSetting, recurringBills] = await Promise.all([
     prisma.account.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.transactionCategory.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.setting.findUnique({ where: { key: "finance_custom_from" } }),
+    prisma.recurringBill.findMany({
+      where: { active: true },
+      orderBy: { dueDay: "asc" },
+      include: { account: { select: { name: true } } },
+    }),
   ]);
+
+  // Lógica de vencimiento próximo (dentro de 7 días)
+  const today = now.getDate();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const billsWithState = recurringBills.map((b) => {
+    const isPaidThisMonth = b.lastPaidAt !== null && b.lastPaidAt >= firstOfMonth;
+    const daysUntil = b.dueDay >= today ? b.dueDay - today : 31 - today + b.dueDay;
+    const isDueSoon = daysUntil <= 7;
+    return {
+      id: b.id,
+      name: b.name,
+      amountArs: Number(b.amountArs),
+      dueDay: b.dueDay,
+      category: b.category,
+      accountName: b.account?.name ?? null,
+      lastPaidAt: b.lastPaidAt,
+      isDueSoon,
+      isPaidThisMonth,
+    };
+  });
 
   const where: any = {};
   if (sp.from) where.date = { ...(where.date ?? {}), gte: new Date(sp.from) };
@@ -72,6 +105,12 @@ export default async function FinancePage({
         actions={<NewTxDialog accounts={accounts} categories={categories} />}
       />
 
+      <RecurringBillsSection
+        bills={billsWithState}
+        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+      />
+
       {accounts.length === 0 ? (
         <EmptyState
           icon={Wallet}
@@ -97,6 +136,56 @@ export default async function FinancePage({
         description="Últimos 200 registros según filtros."
         padded={false}
       >
+        {/* Filtros rápidos */}
+        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-2.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Acceso rápido:</span>
+          {[
+            { label: "Este mes", from: thisMonthFrom, to: "" },
+            { label: "Este año", from: thisYearFrom, to: "" },
+            { label: "Todo", from: "", to: "" },
+            ...(customFromSetting
+              ? [{ label: `Desde ${customFromSetting.value}`, from: customFromSetting.value, to: "" }]
+              : []),
+          ].map(({ label, from, to }) => {
+            const href = `/finanzas?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString()}`;
+            const active =
+              (sp.from ?? "") === from &&
+              (sp.to ?? "") === to &&
+              !sp.account &&
+              !sp.direction;
+            return (
+              <Link
+                key={label}
+                href={href}
+                className={`rounded-md border px-3 py-1 text-xs transition-colors ${
+                  active
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          })}
+          {/* Guardar período personalizado */}
+          {sp.from && (
+            <form
+              action={async (fd) => {
+                "use server";
+                fd.set("key", "finance_custom_from");
+                fd.set("value", sp.from!);
+                await upsertSetting(fd);
+              }}
+              className="ml-auto"
+            >
+              <Button type="submit" size="sm" variant="ghost" className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground">
+                <BookmarkCheck className="h-3.5 w-3.5" />
+                Guardar «{sp.from}» como período
+              </Button>
+            </form>
+          )}
+        </div>
+
         <form className="flex flex-wrap gap-2 border-b px-5 py-3 text-sm">
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">

@@ -50,17 +50,23 @@ export function SalesEditor({
   const [pending, startTransition] = useTransition();
   const [closing, setClosing] = useState(false);
   const [editingMeta, setEditingMeta] = useState(false);
+  const [sortMode, setSortMode] = useState<"popular" | "alpha">("popular");
   const [addingMisc, setAddingMisc] = useState(false);
   const [expandedVariants, setExpandedVariants] = useState<Set<number>>(new Set());
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return toys.filter((t) => {
+    let result = toys.filter((t) => {
       if (q && !t.name.toLowerCase().includes(q)) return false;
       if (catFilter && t.category !== catFilter) return false;
       return true;
     });
-  }, [toys, filter, catFilter]);
+    if (sortMode === "alpha") {
+      result = [...result].sort((a, b) => a.name.localeCompare(b.name, "es"));
+    }
+    // "popular" mantiene el orden del servidor (recentVol desc → alpha)
+    return result;
+  }, [toys, filter, catFilter, sortMode]);
 
   const totals = useMemo(() => {
     const toyTotal = toys.reduce((s, t) => s + t.qty * t.price, 0);
@@ -148,6 +154,14 @@ export function SalesEditor({
                 {categories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
+            <button
+              type="button"
+              onClick={() => setSortMode((m) => (m === "popular" ? "alpha" : "popular"))}
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              title={sortMode === "popular" ? "Ordenado por más vendidos — clic para A–Z" : "Ordenado A–Z — clic para más vendidos"}
+            >
+              {sortMode === "popular" ? "★ Populares" : "A–Z"}
+            </button>
           </div>
         </div>
 

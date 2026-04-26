@@ -5,7 +5,7 @@ import { NewOrderPageForm } from "./new-order-page-form";
 export const dynamic = "force-dynamic";
 
 export default async function NewFilamentOrderPage() {
-  const [orders, filaments] = await Promise.all([
+  const [orders, filaments, accounts] = await Promise.all([
     prisma.filamentOrder.findMany({
       select: { supplier: true },
       distinct: ["supplier"],
@@ -15,6 +15,7 @@ export default async function NewFilamentOrderPage() {
     prisma.filament.findMany({
       select: { brand: true, color: true },
     }),
+    prisma.account.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);
 
   const suppliers = Array.from(new Set(orders.map((o) => o.supplier))).sort();
@@ -31,7 +32,12 @@ export default async function NewFilamentOrderPage() {
           { label: "Nueva compra" },
         ]}
       />
-      <NewOrderPageForm suppliers={suppliers} brands={brands} colors={colors} />
+      <NewOrderPageForm
+        suppliers={suppliers}
+        brands={brands}
+        colors={colors}
+        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+      />
     </div>
   );
 }

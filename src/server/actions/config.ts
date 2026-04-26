@@ -14,6 +14,7 @@ export async function upsertSetting(formData: FormData) {
   await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
   revalidatePath("/configuracion");
   revalidatePath("/metricas");
+  revalidatePath("/finanzas");
 }
 
 export async function getSettings(): Promise<Record<string, string>> {

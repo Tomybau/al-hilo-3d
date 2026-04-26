@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Money } from "@/components/money";
 import { LineChartCard } from "@/components/charts/line-chart-card";
 import { BarChartCard } from "@/components/charts/bar-chart-card";
+import { CostSettingsDialog } from "./cost-settings-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,13 @@ export default async function MetricsPage() {
   const monthlyUnits = s["monthly_units_target"] ?? 1;
   const desiredMarginPct = s["desired_margin_pct"] ?? 40;
   const fixedPerUnit = monthlyUnits > 0 ? monthlyFixed / monthlyUnits : 0;
+
+  // Unidades vendidas en los últimos 90 días → promedio mensual
+  const units90 = salesDays90.reduce(
+    (s, d) => s + d.lines.reduce((a, l) => a + l.quantity, 0),
+    0
+  );
+  const avgMonthlyUnits = Math.round(units90 / 3);
 
   const avgGramsPrice =
     batches.length > 0
@@ -350,9 +358,21 @@ export default async function MetricsPage() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">
-          Rentabilidad por juguete
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+            Rentabilidad por juguete
+          </h2>
+          <CostSettingsDialog
+            values={{
+              electricityPerHour,
+              postProcessPerHour,
+              monthlyFixed,
+              monthlyUnits,
+              desiredMarginPct,
+            }}
+            avgMonthlyUnits={avgMonthlyUnits}
+          />
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[

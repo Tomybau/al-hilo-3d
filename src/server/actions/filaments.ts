@@ -14,9 +14,13 @@ const orderSchema = z.object({
   notes: z.string().trim().max(200).optional().nullable(),
 });
 
+// Proveedores que representan carga inicial histórica — no generan transacción financiera.
+const SKIP_FINANCE_SUPPLIERS = ["Carga Inicial"];
+
 // Crear orden de compra + batches.
 // Lee líneas: filament_<i>_brand, color, type, qty, price.
 // Si shippingArs > 0, distribuye proporcional al subtotal de cada línea.
+// Si accountId está presente y el proveedor no es de carga inicial, registra un gasto.
 export async function createFilamentOrder(formData: FormData) {
   const data = orderSchema.parse({
     supplier: formData.get("supplier"),
@@ -25,6 +29,7 @@ export async function createFilamentOrder(formData: FormData) {
     notes: formData.get("notes") || null,
   });
   const userId = await getCurrentUserId();
+  const accountId = formData.get("accountId") ? Number(formData.get("accountId")) : null;
 
   const lines: { brand: string; color: string; type: FilamentType; qty: number; price: number }[] = [];
   for (let i = 0; i < 50; i++) {
@@ -77,8 +82,25 @@ export async function createFilamentOrder(formData: FormData) {
         });
       }
     }
+
+    // Registrar gasto automático si se eligió cuenta y no es proveedor de carga inicial
+    const totalCost = subtotal + shipping;
+    if (accountId && !SKIP_FINANCE_SUPPLIERS.includes(data.supplier) && totalCost > 0) {
+      await tx.transaction.create({
+        data: {
+          date: new Date(data.date),
+          direction: "EXPENSE",
+          amountArs: totalCost,
+          accountId,
+          category: "Filamentos",
+          description: `Compra filamentos – ${data.supplier}`,
+          createdById: userId ?? undefined,
+        },
+      });
+    }
   });
   revalidatePath("/filamentos");
+  revalidatePath("/finanzas");
   redirect("/filamentos");
 }
 

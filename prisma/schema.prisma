@@ -238,8 +238,9 @@ model Account {
   notes     String?
   createdAt DateTime    @default(now())
 
-  transactions Transaction[]
-  settlements  Settlement[]
+  transactions   Transaction[]
+  settlements    Settlement[]
+  recurringBills RecurringBill[]
 }
 
 model TransactionCategory {
@@ -271,6 +272,25 @@ model Transaction {
 
   @@index([date])
   @@index([accountId, date])
+}
+
+// -------------------- Pagos recurrentes --------------------
+
+model RecurringBill {
+  id          Int      @id @default(autoincrement())
+  name        String
+  amountArs   Decimal  @db.Decimal(12, 2)
+  /// Día del mes en que vence (1–31)
+  dueDay      Int
+  accountId   Int?
+  category    String?
+  active      Boolean  @default(true)
+  lastPaidAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id])
+
+  @@index([active])
 }
 
 // -------------------- Impresoras --------------------

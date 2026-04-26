@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart2,
   Coins,
   Factory,
@@ -36,6 +37,7 @@ const NEGOCIO = [
   { href: "/finanzas", label: "Finanzas", icon: Coins },
   { href: "/impresoras", label: "Impresoras", icon: Factory },
   { href: "/metricas", label: "Métricas", icon: BarChart2 },
+  { href: "/actividad", label: "Actividad", icon: Activity },
 ];
 
 export function AppSidebar({ user }: { user: { id: number; name: string } | null }) {

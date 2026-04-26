@@ -8,20 +8,31 @@ import { PageHeader } from "@/components/page-header";
 import { SectionCard } from "@/components/section-card";
 import { EmptyState } from "@/components/empty-state";
 import { formatARS } from "@/lib/money";
+import { Money } from "@/components/money";
 
 export const dynamic = "force-dynamic";
 
 export default async function FilamentsPage() {
-  const filaments = await prisma.filament.findMany({
-    where: { active: true },
-    include: {
-      batches: {
-        where: { isFinished: false },
-        orderBy: { purchaseDate: "asc" },
+  const [filaments, orders] = await Promise.all([
+    prisma.filament.findMany({
+      where: { active: true },
+      include: {
+        batches: {
+          where: { isFinished: false },
+          orderBy: { purchaseDate: "asc" },
+        },
       },
-    },
-    orderBy: [{ brand: "asc" }, { color: "asc" }],
-  });
+      orderBy: [{ brand: "asc" }, { color: "asc" }],
+    }),
+    prisma.filamentOrder.findMany({
+      orderBy: { date: "desc" },
+      take: 30,
+      include: {
+        batches: { select: { purchasePriceArs: true } },
+        createdBy: { select: { name: true } },
+      },
+    }),
+  ]);
 
   const withStock = filaments.filter((f) => f.batches.length > 0);
   const noStock = filaments.filter((f) => f.batches.length === 0);
@@ -136,6 +147,48 @@ export default async function FilamentsPage() {
                 </Badge>
               </div>
             ))}
+          </div>
+        </details>
+      )}
+
+      {orders.length > 0 && (
+        <details className="group rounded-lg border bg-card">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/30">
+            <span>Historial de compras ({orders.length})</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▾</span>
+          </summary>
+          <div className="border-t overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <th className="px-5 py-2 text-left">Fecha</th>
+                  <th className="px-5 py-2 text-left">Proveedor</th>
+                  <th className="px-5 py-2 text-right">Rollos</th>
+                  <th className="px-5 py-2 text-right">Total</th>
+                  <th className="px-5 py-2 text-left">Por</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {orders.map((o) => {
+                  const total = o.batches.reduce((s, b) => s + Number(b.purchasePriceArs), 0);
+                  return (
+                    <tr key={o.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-2.5 tabular text-muted-foreground">
+                        {new Date(o.date).toLocaleDateString("es-AR")}
+                      </td>
+                      <td className="px-5 py-2.5 font-medium">{o.supplier}</td>
+                      <td className="px-5 py-2.5 text-right tabular">{o.batches.length}</td>
+                      <td className="px-5 py-2.5 text-right">
+                        <Money value={total} intent="muted" />
+                      </td>
+                      <td className="px-5 py-2.5 text-xs text-muted-foreground">
+                        {o.createdBy?.name ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </details>
       )}

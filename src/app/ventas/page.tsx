@@ -24,7 +24,7 @@ export default async function SalesIndexPage() {
   const [days, locations] = await Promise.all([
     prisma.salesDay.findMany({
       orderBy: { date: "desc" },
-      include: { lines: true, settlements: true, location: true },
+      include: { lines: true, miscLines: true, settlements: true, location: true },
       take: 30,
     }),
     prisma.salesLocation.findMany({ orderBy: { name: "asc" } }),
@@ -97,11 +97,16 @@ export default async function SalesIndexPage() {
             </TableHeader>
             <TableBody>
               {days.map((d) => {
-                const total = d.lines.reduce(
-                  (s, l) => s + l.quantity * Number(l.unitPriceArs),
-                  0
-                );
-                const items = d.lines.reduce((s, l) => s + l.quantity, 0);
+                const grossTotal =
+                  d.lines.reduce((s, l) => s + l.quantity * Number(l.unitPriceArs), 0) +
+                  d.miscLines.reduce((s, m) => s + m.quantity * Number(m.unitPriceArs), 0);
+                const discount = d.settlements
+                  .filter((s) => s.kind === "DISCOUNT")
+                  .reduce((sum, s) => sum + Number(s.amountArs), 0);
+                const total = grossTotal - discount;
+                const items =
+                  d.lines.reduce((s, l) => s + l.quantity, 0) +
+                  d.miscLines.reduce((s, m) => s + m.quantity, 0);
                 return (
                   <TableRow key={d.id}>
                     <TableCell className="font-medium">

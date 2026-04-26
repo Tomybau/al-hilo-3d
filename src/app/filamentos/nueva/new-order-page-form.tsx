@@ -18,18 +18,24 @@ type BrandEntry = {
   colors: ColorEntry[];
 };
 
+type AccountEntry = { id: number; name: string };
+
 function emptyBrand(): BrandEntry {
   return { brand: "", pricePerRoll: 0, filamentType: "PLA", colors: [{ color: "", qty: 1 }] };
 }
+
+const SKIP_FINANCE_SUPPLIERS = ["Carga Inicial"];
 
 export function NewOrderPageForm({
   suppliers,
   brands: knownBrands,
   colors: knownColors,
+  accounts,
 }: {
   suppliers: string[];
   brands: string[];
   colors: string[];
+  accounts: AccountEntry[];
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -39,8 +45,11 @@ export function NewOrderPageForm({
   const [date, setDate] = useState(today);
   const [shipping, setShipping] = useState(0);
   const [notes, setNotes] = useState("");
+  const [accountId, setAccountId] = useState<number | null>(accounts.length === 1 ? accounts[0].id : null);
   const [brandEntries, setBrandEntries] = useState<BrandEntry[]>([emptyBrand()]);
   const [submitting, setSubmitting] = useState(false);
+
+  const skipFinance = SKIP_FINANCE_SUPPLIERS.includes(supplier.trim());
 
   const subtotal = useMemo(
     () => brandEntries.reduce((s, b) => s + b.pricePerRoll * b.colors.reduce((cs, c) => cs + c.qty, 0), 0),
@@ -107,6 +116,9 @@ export function NewOrderPageForm({
     fd.set("date", date);
     fd.set("shippingArs", String(shipping));
     fd.set("notes", notes);
+    if (accountId && !SKIP_FINANCE_SUPPLIERS.includes(supplier.trim())) {
+      fd.set("accountId", String(accountId));
+    }
     lines.forEach((l, i) => {
       fd.set(`filament_${i}_brand`, l.brand);
       fd.set(`filament_${i}_color`, l.color);
@@ -360,6 +372,31 @@ export function NewOrderPageForm({
           </CardContent>
         </Card>
 
+        {accounts.length > 0 && !skipFinance && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+            <p className="font-medium">¿De qué cuenta sale el dinero?</p>
+            <select
+              value={accountId ?? ""}
+              onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">No registrar gasto</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+            {accountId && (
+              <p className="text-xs text-muted-foreground">
+                Se registrará un gasto de <strong>{formatARS(total)}</strong> en «Filamentos».
+              </p>
+            )}
+          </div>
+        )}
+        {skipFinance && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Proveedor de carga inicial — no se registrará gasto automático.
+          </p>
+        )}
         <Button type="submit" className="w-full" size="lg" disabled={submitting || subtotal === 0}>
           {submitting ? "Guardando…" : "Registrar compra"}
         </Button>

@@ -1,14 +1,20 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  Bell,
   CalendarCheck2,
+  Check,
+  Coins,
   Disc3,
   Package,
   Plus,
   ShoppingCart,
+  TrendingDown,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { payRecurringBill } from "@/server/actions/recurring";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { SectionCard } from "@/components/section-card";
@@ -20,7 +26,11 @@ import { Badge } from "@/components/ui/badge";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [toysCount, openSalesDay, filaments, recentTx] = await Promise.all([
+  const now = new Date();
+  const d30 = new Date(now);
+  d30.setDate(d30.getDate() - 30);
+
+  const [toysCount, openSalesDay, filaments, recentTx, salesDays30, txs30, recurringBills] = await Promise.all([
     prisma.toy.count({ where: { active: true } }),
     prisma.salesDay.findFirst({ where: { status: "DRAFT" }, orderBy: { date: "desc" } }),
     prisma.filament.findMany({
@@ -28,6 +38,18 @@ export default async function DashboardPage() {
       include: { batches: { select: { gramsRemaining: true } } },
     }),
     prisma.transaction.findMany({ orderBy: { date: "desc" }, take: 6, include: { account: true } }),
+    prisma.salesDay.findMany({
+      where: { status: "CLOSED", date: { gte: d30 } },
+      include: { lines: { select: { quantity: true, unitPriceArs: true } }, settlements: { select: { kind: true, amountArs: true } } },
+    }),
+    prisma.transaction.findMany({
+      where: { date: { gte: d30 } },
+      select: { direction: true, amountArs: true },
+    }),
+    prisma.recurringBill.findMany({
+      where: { active: true },
+      orderBy: { dueDay: "asc" },
+    }),
   ]);
 
   const totalGrams = filaments.reduce(
@@ -37,6 +59,30 @@ export default async function DashboardPage() {
   const lowFilamentCount = filaments.filter(
     (f) => f.batches.reduce((s, b) => s + b.gramsRemaining, 0) < 500
   ).length;
+
+  // Pagos recurrentes pendientes (vencen en 7 días y no fueron pagados este mes)
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const today = now.getDate();
+  const dueSoonBills = recurringBills.filter((b) => {
+    const isPaid = b.lastPaidAt !== null && b.lastPaidAt >= firstOfMonth;
+    if (isPaid) return false;
+    const daysUntil = b.dueDay >= today ? b.dueDay - today : 31 - today + b.dueDay;
+    return daysUntil <= 7;
+  });
+
+  // Métricas de ventas últimos 30 días
+  const revenue30 = salesDays30.reduce((s, d) => {
+    const gross = d.lines.reduce((a, l) => a + l.quantity * Number(l.unitPriceArs), 0);
+    const disc = d.settlements.filter((x) => x.kind === "DISCOUNT").reduce((a, x) => a + Number(x.amountArs), 0);
+    return s + gross - disc;
+  }, 0);
+  const units30 = salesDays30.reduce((s, d) => s + d.lines.reduce((a, l) => a + l.quantity, 0), 0);
+  const days30Count = salesDays30.length;
+
+  // Salud financiera últimos 30 días
+  const income30 = txs30.filter((t) => t.direction === "INCOME").reduce((s, t) => s + Number(t.amountArs), 0);
+  const expense30 = txs30.filter((t) => t.direction === "EXPENSE").reduce((s, t) => s + Number(t.amountArs), 0);
+  const net30 = income30 - expense30;
 
   return (
     <div className="flex flex-col gap-6">
@@ -110,6 +156,108 @@ export default async function DashboardPage() {
           hrefLabel="Ir a finanzas"
         />
       </div>
+
+      {/* Recordatorios de pagos recurrentes */}
+      {dueSoonBills.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold tracking-tight text-foreground">
+              Pagos próximos
+            </h2>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {dueSoonBills.map((b) => {
+              const daysUntil = b.dueDay >= today ? b.dueDay - today : 31 - today + b.dueDay;
+              return (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium">{b.name}</span>
+                    <span className="ml-2 text-xs text-amber-700">
+                      {daysUntil === 0 ? "hoy" : `en ${daysUntil} día${daysUntil !== 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+                  <form action={payRecurringBill} className="shrink-0">
+                    <input type="hidden" name="id" value={b.id} />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    >
+                      <Check className="h-3.5 w-3.5" /> Marcar pagado
+                    </Button>
+                  </form>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Ventas — últimos 30 días */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">Ventas — últimos 30 días</h2>
+          <Link href="/metricas" className="text-xs text-muted-foreground hover:text-primary hover:underline">
+            Ver métricas completas →
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatCard
+            label="Facturado"
+            value={<Money value={revenue30} intent="positive" />}
+            icon={TrendingUp}
+            accent="success"
+          />
+          <StatCard
+            label="Unidades"
+            value={units30}
+            icon={ShoppingCart}
+            accent="info"
+            hint={`En ${days30Count} día${days30Count !== 1 ? "s" : ""} de venta`}
+          />
+          <StatCard
+            label="Promedio por día"
+            value={<Money value={days30Count > 0 ? revenue30 / days30Count : 0} />}
+            icon={CalendarCheck2}
+            accent="primary"
+          />
+        </div>
+      </section>
+
+      {/* Salud financiera — últimos 30 días */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">Salud financiera — últimos 30 días</h2>
+          <Link href="/finanzas" className="text-xs text-muted-foreground hover:text-primary hover:underline">
+            Ver finanzas →
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatCard
+            label="Ingresos"
+            value={<Money value={income30} intent="positive" />}
+            icon={TrendingUp}
+            accent="success"
+          />
+          <StatCard
+            label="Gastos"
+            value={<Money value={expense30} intent="negative" />}
+            icon={TrendingDown}
+            accent="destructive"
+          />
+          <StatCard
+            label="Neto"
+            value={<Money value={net30} intent={net30 < 0 ? "negative" : "positive"} />}
+            icon={Coins}
+            accent={net30 < 0 ? "destructive" : "success"}
+          />
+        </div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard
