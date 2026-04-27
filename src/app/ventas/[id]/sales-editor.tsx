@@ -31,6 +31,7 @@ export function SalesEditor({
   categories,
   miscLines: initialMiscLines,
   accounts,
+  txCategories,
 }: {
   salesDayId: number;
   date: string;
@@ -41,6 +42,7 @@ export function SalesEditor({
   categories: string[];
   miscLines: MiscLine[];
   accounts: Account[];
+  txCategories: string[];
 }) {
   const router = useRouter();
   const [toys, setToys] = useState(initialToys);
@@ -212,17 +214,18 @@ export function SalesEditor({
                         className="h-10 w-16 text-center text-lg font-semibold"
                       />
                       <Button type="button" variant="outline" size="icon" onClick={() => setQty(t.id, t.qty + 1)}>+</Button>
-                      <div className="w-24 text-right text-sm font-medium">{formatARS(t.qty * t.price)}</div>
-                      {t.qty > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => toggleVariants(t.id)}
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                          title="Desglose"
-                        >
-                          {expandedVariants.has(t.id) ? "▲" : "▾"}
-                        </button>
-                      )}
+                      <div className="w-28 shrink-0 text-right text-sm font-medium tabular-nums">{formatARS(t.qty * t.price)}</div>
+                      <button
+                        type="button"
+                        onClick={() => toggleVariants(t.id)}
+                        disabled={t.qty === 0}
+                        aria-hidden={t.qty === 0}
+                        tabIndex={t.qty === 0 ? -1 : 0}
+                        className={`w-4 shrink-0 text-xs ${t.qty > 0 ? "text-muted-foreground hover:text-foreground" : "invisible"}`}
+                        title="Desglose"
+                      >
+                        {expandedVariants.has(t.id) ? "▲" : "▾"}
+                      </button>
                     </div>
                   </div>
                   {t.qty > 0 && expandedVariants.has(t.id) && (
@@ -284,7 +287,7 @@ export function SalesEditor({
             Cerrar día y conciliar
           </Button>
         ) : (
-          <CloseForm salesDayId={salesDayId} accounts={accounts} expected={totals.subtotal} onCancel={() => setClosing(false)} onClosed={() => router.refresh()} />
+          <CloseForm salesDayId={salesDayId} accounts={accounts} txCategories={txCategories} expected={totals.subtotal} onCancel={() => setClosing(false)} onClosed={() => router.refresh()} />
         )}
       </aside>
     </div>
@@ -389,25 +392,36 @@ function MiscLineForm({ onSave, onCancel }: { onSave: (d: string, q: number, p: 
 
 // ── Close form ────────────────────────────────────────────────────────────────
 
-function CloseForm({ salesDayId, accounts, expected, onCancel, onClosed }: {
-  salesDayId: number; accounts: Account[]; expected: number; onCancel: () => void; onClosed: () => void;
+type DiscountLine = { amount: number; category: string; note: string };
+
+function CloseForm({ salesDayId, accounts, txCategories, expected, onCancel, onClosed }: {
+  salesDayId: number; accounts: Account[]; txCategories: string[]; expected: number; onCancel: () => void; onClosed: () => void;
 }) {
   const [receipts, setReceipts] = useState<Record<number, number>>(Object.fromEntries(accounts.map((a) => [a.id, 0])));
-  const [discount, setDiscount] = useState(0);
-  const [note, setNote] = useState("");
+  const [discounts, setDiscounts] = useState<DiscountLine[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const received = Object.values(receipts).reduce((s, n) => s + n, 0);
-  const diff = expected - received - discount;
+  const discountTotal = discounts.reduce((s, d) => s + (d.amount || 0), 0);
+  const diff = expected - received - discountTotal;
+
+  function updateDiscount(i: number, patch: Partial<DiscountLine>) {
+    setDiscounts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     const fd = new FormData();
     fd.set("salesDayId", String(salesDayId));
-    fd.set("discount", String(discount));
-    fd.set("discountNote", note);
     for (const a of accounts) fd.set(`receipt_${a.id}`, String(receipts[a.id] ?? 0));
+    const valid = discounts.filter((d) => d.amount > 0);
+    fd.set("discountCount", String(valid.length));
+    valid.forEach((d, i) => {
+      fd.set(`discount_amount_${i}`, String(d.amount));
+      fd.set(`discount_category_${i}`, d.category);
+      fd.set(`discount_note_${i}`, d.note);
+    });
     try { await closeSalesDay(fd); onClosed(); } finally { setSubmitting(false); }
   }
 
@@ -425,13 +439,53 @@ function CloseForm({ salesDayId, accounts, expected, onCancel, onClosed }: {
                 className="h-8 w-32 text-right" />
             </div>
           ))}
-          <div className="flex items-center gap-2 border-t pt-2">
-            <label className="flex-1">Descuento</label>
-            <Input type="number" step="0.01" min="0" value={discount || ""}
-              onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-              className="h-8 w-32 text-right" placeholder="0" />
+
+          <div className="border-t pt-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-medium">Descuentos / Gastos</label>
+              <Button type="button" size="sm" variant="outline"
+                onClick={() => setDiscounts((p) => [...p, { amount: 0, category: "", note: "" }])}>
+                + Agregar
+              </Button>
+            </div>
+            {discounts.length === 0 && (
+              <p className="text-xs text-muted-foreground">Cargá un descuento si pagaste algo con la caja o querés ajustar el total.</p>
+            )}
+            {discounts.map((d, i) => (
+              <div key={i} className="rounded border bg-muted/20 p-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={d.category}
+                    onChange={(e) => updateDiscount(i, { category: e.target.value })}
+                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="">Sin categoría</option>
+                    {txCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <Input type="number" step="0.01" min="0" value={d.amount || ""}
+                    onChange={(e) => updateDiscount(i, { amount: Number(e.target.value) || 0 })}
+                    className="h-8 w-28 text-right" placeholder="0" />
+                  <button type="button" onClick={() => setDiscounts((p) => p.filter((_, idx) => idx !== i))}
+                    className="text-red-400 hover:text-red-600 text-xs px-1">×</button>
+                </div>
+                <Input
+                  placeholder="Detalle (opcional)"
+                  value={d.note}
+                  onChange={(e) => updateDiscount(i, { note: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+            ))}
+            {txCategories.length === 0 && discounts.length > 0 && (
+              <p className="text-xs text-muted-foreground">Sin categorías cargadas — agregá en Configuración.</p>
+            )}
+            {discountTotal > 0 && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Total descuentos</span><span>{formatARS(discountTotal)}</span>
+              </div>
+            )}
           </div>
-          {discount > 0 && <Input placeholder="Motivo descuento" value={note} onChange={(e) => setNote(e.target.value)} className="h-8" />}
+
           <div className={`rounded p-2 text-sm ${Math.abs(diff) < 0.5 ? "bg-green-50 text-green-700" : "bg-orange-50 text-orange-700"}`}>
             Diferencia: <strong>{formatARS(diff)}</strong>
             {Math.abs(diff) >= 0.5 && <p className="text-xs">Quedará registrada como discrepancia.</p>}

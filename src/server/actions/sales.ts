@@ -56,14 +56,28 @@ export async function setSaleLine(formData: FormData) {
 
 export async function closeSalesDay(formData: FormData) {
   const salesDayId = Number(formData.get("salesDayId"));
-  const discount = Number(formData.get("discount") ?? 0);
-  const discountNote = (formData.get("discountNote") as string) || null;
   const accounts = await prisma.account.findMany({ where: { active: true } });
   const receipts = accounts
     .map((a) => ({ accountId: a.id, amount: Number(formData.get(`receipt_${a.id}`) ?? 0) }))
     .filter((r) => r.amount > 0);
 
+  const discountCount = Number(formData.get("discountCount") ?? 0);
+  const discountLines: { amount: number; category: string; note: string }[] = [];
+  for (let i = 0; i < discountCount; i++) {
+    const amount = Number(formData.get(`discount_amount_${i}`) ?? 0);
+    const category = String(formData.get(`discount_category_${i}`) ?? "").trim();
+    const note = String(formData.get(`discount_note_${i}`) ?? "").trim();
+    if (amount > 0) discountLines.push({ amount, category, note });
+  }
+  const discountTotal = discountLines.reduce((s, d) => s + d.amount, 0);
+
   const userId = await getCurrentUserId();
+
+  // Cuenta donde se asentarán los gastos derivados de descuentos (la de mayor recibo, o la primera CASH)
+  const expenseAccountId =
+    receipts.sort((a, b) => b.amount - a.amount)[0]?.accountId ??
+    accounts.find((a) => a.kind === "CASH")?.id ??
+    accounts[0]?.id;
 
   await prisma.$transaction(async (tx) => {
     const sd = await tx.salesDay.findUniqueOrThrow({
@@ -76,7 +90,7 @@ export async function closeSalesDay(formData: FormData) {
       sd.lines.reduce((acc, l) => acc + l.quantity * Number(l.unitPriceArs), 0) +
       sd.miscLines.reduce((acc, l) => acc + l.quantity * Number(l.unitPriceArs), 0);
     const received = receipts.reduce((acc, r) => acc + r.amount, 0);
-    const discrepancy = expected - received - discount;
+    const discrepancy = expected - received - discountTotal;
 
     for (const r of receipts) {
       await tx.settlement.create({
@@ -96,10 +110,30 @@ export async function closeSalesDay(formData: FormData) {
       });
     }
 
-    if (discount > 0) {
+    for (const d of discountLines) {
+      const noteParts = [d.category, d.note].filter(Boolean);
       await tx.settlement.create({
-        data: { salesDayId: sd.id, amountArs: discount, kind: SettlementKind.DISCOUNT, note: discountNote ?? undefined },
+        data: {
+          salesDayId: sd.id,
+          amountArs: d.amount,
+          kind: SettlementKind.DISCOUNT,
+          note: noteParts.join(" — ") || undefined,
+        },
       });
+      if (d.category && expenseAccountId) {
+        await tx.transaction.create({
+          data: {
+            date: sd.date,
+            direction: TxDirection.EXPENSE,
+            amountArs: d.amount,
+            accountId: expenseAccountId,
+            category: d.category,
+            description: d.note || `Descuento cierre ${sd.date.toISOString().slice(0, 10)}`,
+            salesDayId: sd.id,
+            createdById: userId ?? undefined,
+          },
+        });
+      }
     }
 
     if (Math.abs(discrepancy) > 0.5) {
@@ -108,7 +142,7 @@ export async function closeSalesDay(formData: FormData) {
           salesDayId: sd.id,
           amountArs: discrepancy,
           kind: SettlementKind.DISCREPANCY,
-          note: `Esperado ${expected.toFixed(2)} - Recibido ${received.toFixed(2)} - Desc ${discount.toFixed(2)}`,
+          note: `Esperado ${expected.toFixed(2)} - Recibido ${received.toFixed(2)} - Desc ${discountTotal.toFixed(2)}`,
         },
       });
     }
