@@ -10,10 +10,10 @@ export default async function SalesDayPage({ params }: { params: Promise<{ id: s
   const id = Number(idStr);
   if (!Number.isInteger(id)) notFound();
 
-  // Sales volume últimos 90 días para ordenar los juguetes
-  const d90 = new Date(); d90.setDate(d90.getDate() - 90);
+  // Sales volume últimos 180 días para ordenar los juguetes
+  const d180 = new Date(); d180.setDate(d180.getDate() - 180);
 
-  const [salesDay, toys, accounts, locations, recentVolume] = await Promise.all([
+  const [salesDay, toys, accounts, locations, recentVolume, txCategories] = await Promise.all([
     prisma.salesDay.findUnique({
       where: { id },
       include: {
@@ -28,9 +28,10 @@ export default async function SalesDayPage({ params }: { params: Promise<{ id: s
     prisma.salesLocation.findMany({ orderBy: { name: "asc" } }),
     prisma.saleLine.groupBy({
       by: ["toyId"],
-      where: { salesDay: { status: "CLOSED", date: { gte: d90 } } },
+      where: { salesDay: { status: "CLOSED", date: { gte: d180 } } },
       _sum: { quantity: true },
     }),
+    prisma.transactionCategory.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);
   if (!salesDay) notFound();
 
@@ -105,6 +106,7 @@ export default async function SalesDayPage({ params }: { params: Promise<{ id: s
       categories={categories}
       miscLines={miscLinesData}
       accounts={accounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind }))}
+      txCategories={txCategories.map((c) => c.name)}
     />
   );
 }

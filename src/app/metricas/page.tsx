@@ -50,6 +50,7 @@ export default async function MetricsPage() {
     allBatches,
     openIssues,
     allPrinters,
+    lifetimeSold,
   ] = await Promise.all([
     prisma.toy.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.setting.findMany(),
@@ -76,7 +77,14 @@ export default async function MetricsPage() {
     }),
     prisma.issue.count({ where: { resolvedAt: null } }),
     prisma.printer.findMany({ select: { status: true } }),
+    prisma.saleLine.groupBy({
+      by: ["toyId"],
+      where: { salesDay: { status: "CLOSED" } },
+      _sum: { quantity: true },
+    }),
   ]);
+
+  const soldByToy = new Map(lifetimeSold.map((r) => [r.toyId, r._sum.quantity ?? 0]));
 
   const s = Object.fromEntries(settings.map((r) => [r.key, Number(r.value) || 0]));
   const electricityPerHour = s["electricity_price_per_hour"] ?? 0;
@@ -429,6 +437,7 @@ export default async function MetricsPage() {
                 <TableRow>
                   <TableHead>Juguete</TableHead>
                   <TableHead className="text-right">Stock</TableHead>
+                  <TableHead className="text-right">Vendidos</TableHead>
                   <TableHead className="text-right">Filamento</TableHead>
                   <TableHead className="text-right">Costo total</TableHead>
                   <TableHead className="text-right">Precio actual</TableHead>
@@ -452,6 +461,7 @@ export default async function MetricsPage() {
                         {toy.name}
                       </TableCell>
                       <TableCell className="text-right tabular">{toy.stock}</TableCell>
+                      <TableCell className="text-right tabular">{soldByToy.get(toy.id) ?? 0}</TableCell>
                       <TableCell className="text-right">
                         {filamentCost > 0 ? (
                           <Money value={filamentCost} intent="muted" />
@@ -540,7 +550,10 @@ export default async function MetricsPage() {
             <div className="border-t p-4">
               <ul className="grid gap-1 text-sm text-muted-foreground md:grid-cols-2 lg:grid-cols-3">
                 {missingData.map((t) => (
-                  <li key={t.id}>— {t.name}</li>
+                  <li key={t.id} className="flex justify-between gap-2">
+                    <span>— {t.name}</span>
+                    <span className="tabular text-xs">vendidos: {soldByToy.get(t.id) ?? 0}</span>
+                  </li>
                 ))}
               </ul>
             </div>
