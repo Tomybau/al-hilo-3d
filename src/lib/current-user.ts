@@ -1,61 +1,74 @@
+/**
+ * Sesion del usuario actual, del lado del servidor.
+ *
+ * Dos niveles de verificacion, a proposito:
+ *   - El middleware (Edge) verifica firma y vencimiento de la cookie. Frena a
+ *     cualquiera sin sesion, sea para leer una pagina o para invocar una accion.
+ *   - `requireUser()` ademas va a la base: el usuario tiene que existir, estar
+ *     activo, tener contrasena y la misma `sessionVersion` que la cookie. Es lo que
+ *     invalida una sesion despues de un cambio de contrasena.
+ *
+ * Toda Server Action tiene que empezar con `await requireUser()`. En un archivo
+ * "use server", CADA funcion exportada es un endpoint publico invocable con un POST,
+ * aunque parezca una funcion interna. `scripts/check-actions-auth.mjs` lo verifica.
+ */
+
+import { cache } from "react";
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "crypto";
+import { redirect } from "next/navigation";
 import { prisma } from "./db";
+import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, signSession, verifySession } from "./session";
 
-const COOKIE_NAME = "alh_user";
-const SECRET = process.env.COOKIE_SECRET ?? "dev-secret-change-me";
+export type CurrentUser = { id: number; name: string };
 
-function sign(value: string): string {
-  return createHmac("sha256", SECRET).update(value).digest("hex");
+/**
+ * Usuario de la request actual, o null.
+ *
+ * Envuelto en `cache()`: el layout y varias acciones lo piden en la misma request,
+ * y asi se consulta la base una sola vez.
+ */
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const store = await cookies();
+  const session = await verifySession(store.get(SESSION_COOKIE)?.value);
+  if (!session) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, name: true, active: true, sessionVersion: true, passwordHash: true },
+  });
+
+  if (!user || !user.active || !user.passwordHash) return null;
+  // Cookie emitida antes de un cambio de contrasena o de una desactivacion.
+  if (user.sessionVersion !== session.version) return null;
+
+  return { id: user.id, name: user.name };
+});
+
+/** El usuario actual, o redirige al login. */
+export async function requireUser(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  return user;
 }
 
-function pack(userId: number): string {
-  const v = String(userId);
-  return `${v}.${sign(v)}`;
-}
-
-function unpack(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const [v, sig] = raw.split(".");
-  if (!v || !sig) return null;
-  const expected = sign(v);
-  try {
-    if (!timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"))) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  const id = Number(v);
-  return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-export async function getCurrentUser() {
-  const c = await cookies();
-  const id = unpack(c.get(COOKIE_NAME)?.value);
-  if (!id) return null;
-  return prisma.user.findUnique({ where: { id, active: true } });
-}
-
+/** Compatibilidad con el codigo existente que solo necesita el id. */
 export async function getCurrentUserId(): Promise<number | null> {
-  const c = await cookies();
-  return unpack(c.get(COOKIE_NAME)?.value);
+  return (await getCurrentUser())?.id ?? null;
 }
 
-export async function setCurrentUser(userId: number) {
-  const c = await cookies();
-  c.set(COOKIE_NAME, pack(userId), {
+export async function startSession(user: { id: number; sessionVersion: number }) {
+  const value = await signSession({ userId: user.id, version: user.sessionVersion });
+  const store = await cookies();
+  store.set(SESSION_COOKIE, value, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 365,
+    maxAge: SESSION_MAX_AGE_SECONDS,
     path: "/",
   });
 }
 
-export async function clearCurrentUser() {
-  const c = await cookies();
-  c.delete(COOKIE_NAME);
+export async function endSession() {
+  const store = await cookies();
+  store.delete(SESSION_COOKIE);
 }
-
-export const USER_COOKIE_NAME = COOKIE_NAME;

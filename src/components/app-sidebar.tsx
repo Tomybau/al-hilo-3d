@@ -12,8 +12,10 @@ import {
   Settings,
   ShoppingCart,
   Disc3,
+  LogOut,
   UserCircle2,
 } from "lucide-react";
+import { logout } from "@/server/actions/auth";
 import {
   Sidebar,
   SidebarContent,
@@ -40,7 +42,7 @@ const NEGOCIO = [
   { href: "/actividad", label: "Actividad", icon: Activity },
 ];
 
-export function AppSidebar({ user }: { user: { id: number; name: string } | null }) {
+export function AppSidebar({ user }: { user: { id: number; name: string } }) {
   const pathname = usePathname() ?? "/";
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
@@ -118,14 +120,22 @@ export function AppSidebar({ user }: { user: { id: number; name: string } | null
             </Link>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <Link href="/quien-soy" className="block">
-              <SidebarMenuButton asChild isActive={isActive("/quien-soy")}>
+            <Link href="/configuracion?tab=cuenta" className="block" title="Mi cuenta">
+              <SidebarMenuButton asChild>
                 <>
                   <UserCircle2 className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{user ? user.name : "Identificarme"}</span>
+                  <span className="truncate">{user.name}</span>
                 </>
               </SidebarMenuButton>
             </Link>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <form action={logout}>
+              <SidebarMenuButton type="submit" className="w-full text-muted-foreground">
+                <LogOut className="h-4 w-4 shrink-0" />
+                <span>Cerrar sesión</span>
+              </SidebarMenuButton>
+            </form>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

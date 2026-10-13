@@ -1,6 +1,9 @@
 import { LogOut, Plus, Trash2 } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { createUser, deactivateUser, logout } from "@/server/actions/users";
+import { logout } from "@/server/actions/auth";
+import { requireUser } from "@/lib/current-user";
+import { UsersSection, type UserRow } from "./users-section";
+import { AccountSection } from "./account-section";
 import {
   createAccount,
   toggleAccount,
@@ -22,10 +25,22 @@ import { AccountKind } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConfigPage() {
+const TABS = ["usuarios", "cuenta", "lugares", "cuentas", "categorias", "impresoras", "costos"] as const;
+
+export default async function ConfigPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const me = await requireUser();
+  const sp = await searchParams;
+  const initialTab = TABS.includes(sp.tab as (typeof TABS)[number]) ? sp.tab! : "usuarios";
   const [users, accounts, locations, categories, printers, parts, settings] =
     await Promise.all([
-      prisma.user.findMany({ orderBy: { name: "asc" } }),
+      prisma.user.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, active: true, passwordHash: true },
+      }),
       prisma.account.findMany({ orderBy: { name: "asc" } }),
       prisma.salesLocation.findMany({ orderBy: { name: "asc" } }),
       prisma.transactionCategory.findMany({ orderBy: { name: "asc" } }),
@@ -36,6 +51,15 @@ export default async function ConfigPage() {
 
   const s = Object.fromEntries(settings.map((r) => [r.key, r.value]));
 
+  // El hash de la contrasena se convierte en un booleano ACA, en el servidor:
+  // `users` se pasa a un componente cliente y todo lo que lleve viaja al navegador.
+  const userRows: UserRow[] = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    active: u.active,
+    hasPassword: u.passwordHash !== null,
+  }));
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -44,15 +68,16 @@ export default async function ConfigPage() {
         actions={
           <form action={logout}>
             <Button variant="outline" size="sm">
-              <LogOut className="h-4 w-4" /> Cambiar usuario
+              <LogOut className="h-4 w-4" /> Cerrar sesión
             </Button>
           </form>
         }
       />
 
-      <Tabs defaultValue="usuarios" className="flex flex-col gap-4">
+      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
         <TabsList className="w-fit flex-wrap">
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+          <TabsTrigger value="cuenta">Mi cuenta</TabsTrigger>
           <TabsTrigger value="lugares">Lugares</TabsTrigger>
           <TabsTrigger value="cuentas">Cuentas</TabsTrigger>
           <TabsTrigger value="categorias">Categorías</TabsTrigger>
@@ -61,40 +86,11 @@ export default async function ConfigPage() {
         </TabsList>
 
         <TabsContent value="usuarios" className="mt-0">
-          <SectionCard
-            title={`Usuarios (${users.length})`}
-            description="Quiénes pueden cargar ventas y movimientos."
-          >
-            <form action={createUser} className="mb-4 flex gap-2">
-              <Input name="name" placeholder="Nombre nuevo usuario" required maxLength={40} />
-              <Button type="submit">
-                <Plus className="h-4 w-4" /> Crear
-              </Button>
-            </form>
-            <ul className="divide-y">
-              {users.map((u) => (
-                <li key={u.id} className="flex items-center justify-between py-2">
-                  <span
-                    className={
-                      u.active
-                        ? "font-medium"
-                        : "text-muted-foreground line-through"
-                    }
-                  >
-                    {u.name}
-                  </span>
-                  {u.active && (
-                    <form action={deactivateUser}>
-                      <input type="hidden" name="userId" value={u.id} />
-                      <Button type="submit" size="sm" variant="ghost">
-                        Desactivar
-                      </Button>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
+          <UsersSection users={userRows} currentUserId={me.id} />
+        </TabsContent>
+
+        <TabsContent value="cuenta" className="mt-0">
+          <AccountSection name={me.name} />
         </TabsContent>
 
         <TabsContent value="lugares" className="mt-0">

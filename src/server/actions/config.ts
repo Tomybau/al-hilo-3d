@@ -4,10 +4,12 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { AccountKind } from "@prisma/client";
+import { requireUser } from "@/lib/current-user";
 
 // ---------- Settings ----------
 
 export async function upsertSetting(formData: FormData) {
+  await requireUser();
   const key = String(formData.get("key"));
   const value = String(formData.get("value") ?? "");
   if (!key) return;
@@ -17,14 +19,11 @@ export async function upsertSetting(formData: FormData) {
   revalidatePath("/finanzas");
 }
 
-export async function getSettings(): Promise<Record<string, string>> {
-  const rows = await prisma.setting.findMany();
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
-}
 
 // ---------- SalesLocation ----------
 
 export async function createSalesLocation(formData: FormData) {
+  await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   await prisma.salesLocation.upsert({ where: { name }, update: {}, create: { name } });
@@ -33,6 +32,7 @@ export async function createSalesLocation(formData: FormData) {
 }
 
 export async function deleteSalesLocation(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   await prisma.salesLocation.delete({ where: { id } }).catch(() => {});
@@ -42,6 +42,7 @@ export async function deleteSalesLocation(formData: FormData) {
 // ---------- TransactionCategory ----------
 
 export async function createTxCategory(formData: FormData) {
+  await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   await prisma.transactionCategory.upsert({ where: { name }, update: { active: true }, create: { name } });
@@ -50,6 +51,7 @@ export async function createTxCategory(formData: FormData) {
 }
 
 export async function toggleTxCategory(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const c = await prisma.transactionCategory.findUnique({ where: { id } });
@@ -61,6 +63,7 @@ export async function toggleTxCategory(formData: FormData) {
 // ---------- Account (movido a config) ----------
 
 export async function createAccount(formData: FormData) {
+  await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   const kind = String(formData.get("kind") ?? "CASH") as AccountKind;
   if (!name) return;
@@ -70,6 +73,7 @@ export async function createAccount(formData: FormData) {
 }
 
 export async function toggleAccount(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const a = await prisma.account.findUnique({ where: { id } });

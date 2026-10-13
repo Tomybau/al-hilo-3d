@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 
 const toySchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -18,6 +18,7 @@ const toySchema = z.object({
 });
 
 export async function createToy(formData: FormData) {
+  await requireUser();
   const data = toySchema.parse({
     name: formData.get("name"),
     sku: formData.get("sku") || null,
@@ -29,7 +30,7 @@ export async function createToy(formData: FormData) {
     weightGrams: formData.get("weightGrams") || null,
     postProcessMinutes: formData.get("postProcessMinutes") || null,
   });
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.$transaction(async (tx) => {
     const toy = await tx.toy.create({ data });
     await tx.toyPrice.create({
@@ -40,20 +41,23 @@ export async function createToy(formData: FormData) {
 }
 
 export async function updateToy(formData: FormData) {
+  await requireUser();
+  // El stock NO se edita aca: solo cambia por incrementos (adjustToyStock y la
+  // confirmacion de impresiones). Escribirlo como valor absoluto pisaria cualquier
+  // incremento que ocurra mientras alguien tiene el formulario abierto.
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
-  const data = toySchema.partial().parse({
+  const data = toySchema.omit({ stock: true }).partial().parse({
     name: formData.get("name") || undefined,
     sku: formData.get("sku") || null,
     category: formData.get("category") || null,
     currentPriceArs: formData.get("currentPriceArs") || undefined,
-    stock: formData.get("stock") ?? undefined,
     notes: formData.get("notes") || null,
     printTimeMinutes: formData.get("printTimeMinutes") || null,
     weightGrams: formData.get("weightGrams") || null,
     postProcessMinutes: formData.get("postProcessMinutes") || null,
   });
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   const prev = await prisma.toy.findUnique({ where: { id } });
   await prisma.toy.update({ where: { id }, data });
   if (data.currentPriceArs !== undefined && prev && Number(prev.currentPriceArs) !== data.currentPriceArs) {
@@ -65,10 +69,11 @@ export async function updateToy(formData: FormData) {
 }
 
 export async function updateToyPrice(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   const price = Number(formData.get("price"));
   if (!Number.isInteger(id) || !Number.isFinite(price) || price < 0) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.$transaction([
     prisma.toy.update({ where: { id }, data: { currentPriceArs: price } }),
     prisma.toyPrice.create({ data: { toyId: id, priceArs: price, createdById: userId ?? undefined } }),
@@ -77,6 +82,7 @@ export async function updateToyPrice(formData: FormData) {
 }
 
 export async function adjustToyStock(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   const delta = Number(formData.get("delta"));
   if (!Number.isInteger(id) || !Number.isFinite(delta)) return;
@@ -85,6 +91,7 @@ export async function adjustToyStock(formData: FormData) {
 }
 
 export async function updateToyProduction(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const printTimeMinutes = formData.get("printTimeMinutes");
@@ -104,6 +111,7 @@ export async function updateToyProduction(formData: FormData) {
 }
 
 export async function toggleToyActive(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const t = await prisma.toy.findUnique({ where: { id } });

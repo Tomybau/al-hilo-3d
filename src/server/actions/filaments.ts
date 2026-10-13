@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 import { FilamentType } from "@prisma/client";
 
 const orderSchema = z.object({
@@ -22,13 +22,14 @@ const SKIP_FINANCE_SUPPLIERS = ["Carga Inicial"];
 // Si shippingArs > 0, distribuye proporcional al subtotal de cada línea.
 // Si accountId está presente y el proveedor no es de carga inicial, registra un gasto.
 export async function createFilamentOrder(formData: FormData) {
+  await requireUser();
   const data = orderSchema.parse({
     supplier: formData.get("supplier"),
     date: formData.get("date"),
     shippingArs: formData.get("shippingArs") ?? 0,
     notes: formData.get("notes") || null,
   });
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   const accountId = formData.get("accountId") ? Number(formData.get("accountId")) : null;
 
   const lines: { brand: string; color: string; type: FilamentType; qty: number; price: number }[] = [];
@@ -105,6 +106,7 @@ export async function createFilamentOrder(formData: FormData) {
 }
 
 export async function markBatchFinished(formData: FormData) {
+  await requireUser();
   const batchId = Number(formData.get("batchId"));
   if (!Number.isInteger(batchId)) return;
   await prisma.filamentBatch.update({
@@ -115,6 +117,7 @@ export async function markBatchFinished(formData: FormData) {
 }
 
 export async function updateFilamentStock(formData: FormData) {
+  await requireUser();
   const updates: { filamentId: number; activeQty: number }[] = [];
   for (const [k, v] of formData.entries()) {
     if (typeof k === "string" && k.startsWith("stock_")) {

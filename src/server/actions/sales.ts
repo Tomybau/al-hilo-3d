@@ -4,13 +4,14 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 import { SettlementKind, TxDirection } from "@prisma/client";
 
 export async function createSalesDay(formData: FormData) {
+  await requireUser();
   const date = String(formData.get("date") ?? new Date().toISOString().slice(0, 10));
   const locationId = Number(formData.get("locationId")) || null;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   const sd = await prisma.salesDay.create({
     data: {
       date: new Date(date),
@@ -28,6 +29,7 @@ const lineSchema = z.object({
 });
 
 export async function setSaleLine(formData: FormData) {
+  await requireUser();
   const data = lineSchema.parse({
     salesDayId: formData.get("salesDayId"),
     toyId: formData.get("toyId"),
@@ -55,6 +57,7 @@ export async function setSaleLine(formData: FormData) {
 }
 
 export async function closeSalesDay(formData: FormData) {
+  await requireUser();
   const salesDayId = Number(formData.get("salesDayId"));
   const accounts = await prisma.account.findMany({ where: { active: true } });
   const receipts = accounts
@@ -71,7 +74,7 @@ export async function closeSalesDay(formData: FormData) {
   }
   const discountTotal = discountLines.reduce((s, d) => s + d.amount, 0);
 
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
 
   // Cuenta donde se asentarán los gastos derivados de descuentos (la de mayor recibo, o la primera CASH)
   const expenseAccountId =
@@ -162,6 +165,7 @@ export async function closeSalesDay(formData: FormData) {
 // Reabre una venta cerrada: borra settlements/transactions y restaura stock.
 // Permite editar y volver a cerrar.
 export async function reopenSalesDay(formData: FormData) {
+  await requireUser();
   const salesDayId = Number(formData.get("salesDayId"));
   if (!Number.isInteger(salesDayId)) return;
 
@@ -194,6 +198,7 @@ export async function reopenSalesDay(formData: FormData) {
 
 // Actualiza metadata de la venta (lugar, notas, fecha) — funciona en draft o cerrada.
 export async function updateSalesDayMeta(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   const locationIdRaw = formData.get("locationId");
   const date = formData.get("date") as string | null;
@@ -214,6 +219,7 @@ export async function updateSalesDayMeta(formData: FormData) {
 }
 
 export async function deleteSalesDay(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const sd = await prisma.salesDay.findUnique({ where: { id } });
@@ -223,6 +229,7 @@ export async function deleteSalesDay(formData: FormData) {
 }
 
 export async function setMiscLine(formData: FormData) {
+  await requireUser();
   const salesDayId = Number(formData.get("salesDayId"));
   const id = Number(formData.get("id")) || null;
   const description = String(formData.get("description") ?? "").trim();
@@ -241,6 +248,7 @@ export async function setMiscLine(formData: FormData) {
 }
 
 export async function deleteMiscLine(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   const salesDayId = Number(formData.get("salesDayId"));
   if (!Number.isInteger(id)) return;
@@ -252,6 +260,7 @@ export async function deleteMiscLine(formData: FormData) {
 
 // Reemplaza todas las variantes de una SaleLine (Pokémon → Pikachu×2, Charizard×1…)
 export async function setSaleLineVariants(formData: FormData) {
+  await requireUser();
   const saleLineId = Number(formData.get("saleLineId"));
   if (!Number.isInteger(saleLineId)) return;
   const line = await prisma.saleLine.findUniqueOrThrow({

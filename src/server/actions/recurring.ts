@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 
 const billSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -14,6 +14,7 @@ const billSchema = z.object({
 });
 
 export async function createRecurringBill(formData: FormData) {
+  await requireUser();
   const data = billSchema.parse({
     name: formData.get("name"),
     amountArs: formData.get("amountArs"),
@@ -35,6 +36,7 @@ export async function createRecurringBill(formData: FormData) {
 }
 
 export async function toggleRecurringBill(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   const bill = await prisma.recurringBill.findUnique({ where: { id } });
@@ -45,6 +47,7 @@ export async function toggleRecurringBill(formData: FormData) {
 }
 
 export async function deleteRecurringBill(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   await prisma.recurringBill.delete({ where: { id } });
@@ -58,9 +61,10 @@ export async function deleteRecurringBill(formData: FormData) {
  * - Crea una Transaction de EXPENSE si hay accountId
  */
 export async function payRecurringBill(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
 
   const bill = await prisma.recurringBill.findUnique({
     where: { id },

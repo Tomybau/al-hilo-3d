@@ -3,6 +3,7 @@ import { Wallet, X, BookmarkCheck } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { deleteTransaction } from "@/server/actions/finance";
 import { upsertSetting } from "@/server/actions/config";
+import { requireUser } from "@/lib/current-user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -172,6 +173,7 @@ export default async function FinancePage({
             <form
               action={async (fd) => {
                 "use server";
+                await requireUser();
                 fd.set("key", "finance_custom_from");
                 fd.set("value", sp.from!);
                 await upsertSetting(fd);

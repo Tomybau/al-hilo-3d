@@ -23,6 +23,17 @@ model User {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  /// Hash scrypt con formato `scrypt$N$r$p$sal$hash` (ver src/lib/password.ts).
+  /// Null = el usuario no puede iniciar sesion hasta que alguien le asigne una.
+  passwordHash   String?
+  /// Se incrementa al cambiar la contrasena o desactivar el usuario: invalida
+  /// las sesiones emitidas antes, que ya no pueden ejecutar acciones.
+  sessionVersion Int     @default(0)
+  /// Chat de Telegram de esta persona, para atribuirle las confirmaciones que
+  /// hace desde el bot. String y no BigInt: los BigInt de Prisma rompen
+  /// JSON.stringify y la serializacion hacia componentes cliente.
+  telegramChatId String? @unique
+
   filamentBatches   FilamentBatch[]
   filamentOrders    FilamentOrder[]
   toyPrices         ToyPrice[]

@@ -3,10 +3,11 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 import { IssueSeverity, PartMoveType, PrinterStatus } from "@prisma/client";
 
 export async function createPrinter(formData: FormData) {
+  await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   const model = String(formData.get("model") ?? "").trim() || null;
   if (!name) return;
@@ -16,6 +17,7 @@ export async function createPrinter(formData: FormData) {
 }
 
 export async function setPrinterStatus(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   const status = formData.get("status") as PrinterStatus;
   if (!Number.isInteger(id) || !status) return;
@@ -25,6 +27,7 @@ export async function setPrinterStatus(formData: FormData) {
 }
 
 export async function createPart(formData: FormData) {
+  await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   const sku = String(formData.get("sku") ?? "").trim() || null;
   const stock = Number(formData.get("stock") ?? 0);
@@ -36,7 +39,7 @@ export async function createPart(formData: FormData) {
     }
   }
   if (!name) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.$transaction(async (tx) => {
     const part = await tx.part.create({
       data: {
@@ -57,10 +60,11 @@ export async function createPart(formData: FormData) {
 }
 
 export async function adjustPartStock(formData: FormData) {
+  await requireUser();
   const partId = Number(formData.get("partId"));
   const delta = Number(formData.get("delta"));
   if (!Number.isInteger(partId) || !Number.isFinite(delta) || delta === 0) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.$transaction([
     prisma.part.update({ where: { id: partId }, data: { stock: { increment: delta } } }),
     prisma.partMove.create({
@@ -76,12 +80,13 @@ export async function adjustPartStock(formData: FormData) {
 }
 
 export async function createIssue(formData: FormData) {
+  await requireUser();
   const printerId = Number(formData.get("printerId"));
   const title = String(formData.get("title") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
   const severity = (String(formData.get("severity") ?? "MEDIUM")) as IssueSeverity;
   if (!Number.isInteger(printerId) || !title) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.issue.create({
     data: { printerId, title, description: description ?? undefined, severity, createdById: userId ?? undefined },
   });
@@ -90,9 +95,10 @@ export async function createIssue(formData: FormData) {
 }
 
 export async function resolveIssue(formData: FormData) {
+  await requireUser();
   const issueId = Number(formData.get("issueId"));
   if (!Number.isInteger(issueId)) return;
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   const issue = await prisma.issue.findUniqueOrThrow({ where: { id: issueId } });
 
   const partsUsed: { partId: number; qty: number }[] = [];

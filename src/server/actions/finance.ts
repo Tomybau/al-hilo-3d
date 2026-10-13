@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { getCurrentUserId } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 import { TxDirection } from "@prisma/client";
 
 const txSchema = z.object({
@@ -16,6 +16,7 @@ const txSchema = z.object({
 });
 
 export async function createTransaction(formData: FormData) {
+  await requireUser();
   const data = txSchema.parse({
     date: formData.get("date"),
     direction: formData.get("direction"),
@@ -24,7 +25,7 @@ export async function createTransaction(formData: FormData) {
     category: formData.get("category") || null,
     description: formData.get("description") || null,
   });
-  const userId = await getCurrentUserId();
+  const userId = (await requireUser()).id;
   await prisma.transaction.create({
     data: {
       date: new Date(data.date),
@@ -41,6 +42,7 @@ export async function createTransaction(formData: FormData) {
 }
 
 export async function deleteTransaction(formData: FormData) {
+  await requireUser();
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id)) return;
   await prisma.transaction.delete({ where: { id } });
