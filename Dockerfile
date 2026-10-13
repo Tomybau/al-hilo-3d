@@ -29,11 +29,16 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# La CLI de Prisma va dentro de la imagen. Antes se bajaba con `npx prisma@5.22.0` en
+# cada arranque: dependia de internet y de un HOME escribible, y fallaba sin ellos.
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/package.json ./package.json
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000 HOSTNAME=0.0.0.0
 
-# Migra y arranca (pinea versión de Prisma CLI para que no descargue v7 — breaking changes)
-CMD ["sh", "-c", "npx prisma@5.22.0 migrate deploy && node server.js"]
+# Migra, garantiza un usuario con acceso (scripts/bootstrap.mjs) y arranca.
+# Si cualquiera de los dos primeros pasos falla, el contenedor no levanta.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node scripts/bootstrap.mjs && exec node server.js"]
