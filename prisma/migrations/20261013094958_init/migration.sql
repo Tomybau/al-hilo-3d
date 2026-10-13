@@ -2,9 +2,6 @@
 CREATE TYPE "FilamentType" AS ENUM ('PLA', 'PETG', 'ABS', 'TPU', 'OTRO');
 
 -- CreateEnum
-CREATE TYPE "FilamentMoveType" AS ENUM ('PURCHASE', 'USAGE', 'ADJUSTMENT', 'SALE');
-
--- CreateEnum
 CREATE TYPE "SalesDayStatus" AS ENUM ('DRAFT', 'CLOSED');
 
 -- CreateEnum
@@ -26,6 +23,15 @@ CREATE TYPE "PartMoveType" AS ENUM ('PURCHASE', 'USE', 'ADJUSTMENT');
 CREATE TYPE "IssueSeverity" AS ENUM ('LOW', 'MEDIUM', 'HIGH');
 
 -- CreateTable
+CREATE TABLE "Setting" (
+    "key" TEXT NOT NULL,
+    "value" TEXT NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Setting_pkey" PRIMARY KEY ("key")
+);
+
+-- CreateTable
 CREATE TABLE "User" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
@@ -36,11 +42,32 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
+CREATE TABLE "SalesLocation" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+
+    CONSTRAINT "SalesLocation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FilamentOrder" (
+    "id" SERIAL NOT NULL,
+    "supplier" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "shippingArs" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "notes" TEXT,
+    "createdById" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "FilamentOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Filament" (
     "id" SERIAL NOT NULL,
     "brand" TEXT NOT NULL,
     "color" TEXT NOT NULL,
-    "type" "FilamentType" NOT NULL,
+    "type" "FilamentType" NOT NULL DEFAULT 'PLA',
     "notes" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -52,11 +79,12 @@ CREATE TABLE "Filament" (
 CREATE TABLE "FilamentBatch" (
     "id" SERIAL NOT NULL,
     "filamentId" INTEGER NOT NULL,
-    "gramsTotal" INTEGER NOT NULL,
-    "gramsRemaining" INTEGER NOT NULL,
+    "orderId" INTEGER,
+    "gramsTotal" INTEGER NOT NULL DEFAULT 1000,
+    "gramsRemaining" INTEGER NOT NULL DEFAULT 1000,
+    "isFinished" BOOLEAN NOT NULL DEFAULT false,
     "purchasePriceArs" DECIMAL(12,2) NOT NULL,
     "purchaseDate" TIMESTAMP(3) NOT NULL,
-    "supplier" TEXT,
     "notes" TEXT,
     "createdById" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -65,27 +93,18 @@ CREATE TABLE "FilamentBatch" (
 );
 
 -- CreateTable
-CREATE TABLE "FilamentMove" (
-    "id" SERIAL NOT NULL,
-    "batchId" INTEGER NOT NULL,
-    "type" "FilamentMoveType" NOT NULL,
-    "grams" INTEGER NOT NULL,
-    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "note" TEXT,
-    "createdById" INTEGER,
-
-    CONSTRAINT "FilamentMove_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Toy" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "sku" TEXT,
+    "category" TEXT,
     "currentPriceArs" DECIMAL(12,2) NOT NULL,
     "stock" INTEGER NOT NULL DEFAULT 0,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "notes" TEXT,
+    "printTimeMinutes" INTEGER,
+    "weightGrams" DECIMAL(8,2),
+    "postProcessMinutes" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -107,7 +126,7 @@ CREATE TABLE "ToyPrice" (
 CREATE TABLE "SalesDay" (
     "id" SERIAL NOT NULL,
     "date" TIMESTAMP(3) NOT NULL,
-    "location" TEXT,
+    "locationId" INTEGER,
     "notes" TEXT,
     "status" "SalesDayStatus" NOT NULL DEFAULT 'DRAFT',
     "createdById" INTEGER,
@@ -126,6 +145,27 @@ CREATE TABLE "SaleLine" (
     "unitPriceArs" DECIMAL(12,2) NOT NULL,
 
     CONSTRAINT "SaleLine_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SaleLineVariant" (
+    "id" SERIAL NOT NULL,
+    "saleLineId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+
+    CONSTRAINT "SaleLineVariant_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "MiscLine" (
+    "id" SERIAL NOT NULL,
+    "salesDayId" INTEGER NOT NULL,
+    "description" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "unitPriceArs" DECIMAL(12,2) NOT NULL,
+
+    CONSTRAINT "MiscLine_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -153,6 +193,15 @@ CREATE TABLE "Account" (
 );
 
 -- CreateTable
+CREATE TABLE "TransactionCategory" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "TransactionCategory_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Transaction" (
     "id" SERIAL NOT NULL,
     "date" TIMESTAMP(3) NOT NULL,
@@ -166,6 +215,21 @@ CREATE TABLE "Transaction" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RecurringBill" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "amountArs" DECIMAL(12,2) NOT NULL,
+    "dueDay" INTEGER NOT NULL,
+    "accountId" INTEGER,
+    "category" TEXT,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "lastPaidAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RecurringBill_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -241,19 +305,28 @@ CREATE TABLE "_PrinterParts" (
 CREATE UNIQUE INDEX "User_name_key" ON "User"("name");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "SalesLocation_name_key" ON "SalesLocation"("name");
+
+-- CreateIndex
+CREATE INDEX "FilamentOrder_date_idx" ON "FilamentOrder"("date");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Filament_brand_color_type_key" ON "Filament"("brand", "color", "type");
 
 -- CreateIndex
 CREATE INDEX "FilamentBatch_filamentId_idx" ON "FilamentBatch"("filamentId");
 
 -- CreateIndex
-CREATE INDEX "FilamentMove_batchId_date_idx" ON "FilamentMove"("batchId", "date");
+CREATE INDEX "FilamentBatch_orderId_idx" ON "FilamentBatch"("orderId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Toy_name_key" ON "Toy"("name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Toy_sku_key" ON "Toy"("sku");
+
+-- CreateIndex
+CREATE INDEX "Toy_category_idx" ON "Toy"("category");
 
 -- CreateIndex
 CREATE INDEX "ToyPrice_toyId_effectiveFrom_idx" ON "ToyPrice"("toyId", "effectiveFrom");
@@ -268,10 +341,19 @@ CREATE INDEX "SaleLine_salesDayId_idx" ON "SaleLine"("salesDayId");
 CREATE UNIQUE INDEX "SaleLine_salesDayId_toyId_key" ON "SaleLine"("salesDayId", "toyId");
 
 -- CreateIndex
+CREATE INDEX "SaleLineVariant_saleLineId_idx" ON "SaleLineVariant"("saleLineId");
+
+-- CreateIndex
+CREATE INDEX "MiscLine_salesDayId_idx" ON "MiscLine"("salesDayId");
+
+-- CreateIndex
 CREATE INDEX "Settlement_salesDayId_idx" ON "Settlement"("salesDayId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Account_name_key" ON "Account"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TransactionCategory_name_key" ON "TransactionCategory"("name");
 
 -- CreateIndex
 CREATE INDEX "Transaction_date_idx" ON "Transaction"("date");
@@ -280,10 +362,13 @@ CREATE INDEX "Transaction_date_idx" ON "Transaction"("date");
 CREATE INDEX "Transaction_accountId_date_idx" ON "Transaction"("accountId", "date");
 
 -- CreateIndex
+CREATE INDEX "RecurringBill_active_idx" ON "RecurringBill"("active");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Printer_name_key" ON "Printer"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Part_name_sku_key" ON "Part"("name", "sku");
+CREATE UNIQUE INDEX "Part_name_key" ON "Part"("name");
 
 -- CreateIndex
 CREATE INDEX "PartMove_partId_date_idx" ON "PartMove"("partId", "date");
@@ -298,22 +383,25 @@ CREATE UNIQUE INDEX "_PrinterParts_AB_unique" ON "_PrinterParts"("A", "B");
 CREATE INDEX "_PrinterParts_B_index" ON "_PrinterParts"("B");
 
 -- AddForeignKey
+ALTER TABLE "FilamentOrder" ADD CONSTRAINT "FilamentOrder_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "FilamentBatch" ADD CONSTRAINT "FilamentBatch_filamentId_fkey" FOREIGN KEY ("filamentId") REFERENCES "Filament"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "FilamentBatch" ADD CONSTRAINT "FilamentBatch_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "FilamentOrder"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "FilamentBatch" ADD CONSTRAINT "FilamentBatch_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FilamentMove" ADD CONSTRAINT "FilamentMove_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "FilamentBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FilamentMove" ADD CONSTRAINT "FilamentMove_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ToyPrice" ADD CONSTRAINT "ToyPrice_toyId_fkey" FOREIGN KEY ("toyId") REFERENCES "Toy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ToyPrice" ADD CONSTRAINT "ToyPrice_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SalesDay" ADD CONSTRAINT "SalesDay_locationId_fkey" FOREIGN KEY ("locationId") REFERENCES "SalesLocation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SalesDay" ADD CONSTRAINT "SalesDay_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -323,6 +411,12 @@ ALTER TABLE "SaleLine" ADD CONSTRAINT "SaleLine_salesDayId_fkey" FOREIGN KEY ("s
 
 -- AddForeignKey
 ALTER TABLE "SaleLine" ADD CONSTRAINT "SaleLine_toyId_fkey" FOREIGN KEY ("toyId") REFERENCES "Toy"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SaleLineVariant" ADD CONSTRAINT "SaleLineVariant_saleLineId_fkey" FOREIGN KEY ("saleLineId") REFERENCES "SaleLine"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MiscLine" ADD CONSTRAINT "MiscLine_salesDayId_fkey" FOREIGN KEY ("salesDayId") REFERENCES "SalesDay"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Settlement" ADD CONSTRAINT "Settlement_salesDayId_fkey" FOREIGN KEY ("salesDayId") REFERENCES "SalesDay"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -338,6 +432,9 @@ ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_salesDayId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RecurringBill" ADD CONSTRAINT "RecurringBill_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PartMove" ADD CONSTRAINT "PartMove_partId_fkey" FOREIGN KEY ("partId") REFERENCES "Part"("id") ON DELETE CASCADE ON UPDATE CASCADE;
